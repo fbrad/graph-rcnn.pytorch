@@ -199,11 +199,108 @@ class SceneGraphGeneration:
             os.mkdir(visualize_folder)
         for i, prediction in enumerate(predictions):
             top_prediction = select_top_predictions(prediction)
-            img = imgs.tensors[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
+            #img = imgs.tensors[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
+            img = imgs[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
             result = img.copy()
             result = overlay_boxes(result, top_prediction)
             result = overlay_class_names(result, top_prediction, dataset.ind_to_classes)
             cv2.imwrite(os.path.join(visualize_folder, "detection_{}.jpg".format(img_ids[i])), result)
+
+    def predict(self, visualize=False):
+        """
+        Make predictions using pre-trained SG solution on unseen images from
+        non-VG dataset (test but without the evaluation).
+        :param visualize:
+        :return:
+        """
+        logger = logging.getLogger("scene_graph_generation")
+        logger.info("Start predicting")
+
+        test_size = len(self.data_loader_test.dataset)
+        self.scene_parser.eval()
+        cpu_device = torch.device("cpu")
+        results_dict = {}
+        if self.cfg.MODEL.RELATION_ON:
+            results_pred_dict = {}
+
+        total_timer = Timer()
+        inference_timer = Timer()
+        total_timer.tic()
+
+        reg_recalls = []
+        for i, data in enumerate(self.data_loader_test, 0):
+            #print("[model.py:233] data = ", data.size())
+            imgs, boxes, objects, image_ids = data
+            print("[model.py:233] imgs = ", imgs.size())
+            imgs = imgs.to(self.device)
+            boxes = boxes.to(self.device)
+            if i % 10 == 0:
+                logger.info("prediction on batch {}/{}...".
+                            format(i, len(self.data_loader_test)))
+
+            with torch.no_grad():
+                # predict relations between objects
+                output = self.scene_parser(imgs)
+                if self.cfg.MODEL.RELATION_ON:
+                    output, output_pred = output
+                    output_pred = [o.to(cpu_device) for o in output_pred]
+                    output = [o.to(cpu_device) for o in output]
+
+                if visualize:
+                   self.visualize_detection(self.data_loader_test.dataset,
+                           image_ids, imgs, output)
+
+            results_dict.update(
+                {img_id: result for img_id, result in zip(image_ids, output)}
+            )
+            if self.cfg.MODEL.RELATION_ON:
+                results_pred_dict.update(
+                    {img_id: result for img_id, result in zip(image_ids,
+                                                              output_pred)}
+                )
+
+            # if cfg.instance > 0, break after 1 batch?
+            if self.cfg.instance > 0 and i > self.cfg.instance:
+                break
+
+        synchronize()
+        total_time = total_timer.toc()
+        total_time_str = get_time_str(total_time)
+        num_devices = get_world_size()
+
+        logger.info(
+            "Total run time: {} ({} s / img per device, on {} devices)".format(
+                total_time_str,
+                total_time * num_devices / test_size,
+                num_devices
+            )
+        )
+        total_infer_time = get_time_str(inference_timer.total_time)
+        logger.info(
+            "Model inference time: {} ({} s / img/device, on {} devices)".format(
+                total_infer_time,
+                inference_timer.total_time * num_devices / test_size,
+                num_devices
+            )
+        )
+
+        predictions = self._accumulate_predictions_from_multiple_gpus(
+                        results_dict)
+        if self.cfg.MODEL.RELATION_ON:
+            predictions_pred = self._accumulate_predictions_from_multiple_gpus(
+                        results_pred_dict)
+        if not is_main_process():
+            return
+
+        output_folder = "results"
+        if output_folder:
+            if not os.path.exists(output_folder):
+                os.mkdir(output_folder)
+            torch.save(predictions, os.path.join(output_folder,
+                                                 "predictions.pth"))
+            if self.cfg.MODEL.RELATION_ON:
+                torch.save(predictions_pred,
+                           os.path.join(output_folder, "predictions_pred.pth"))
 
     def test(self, timer=None, visualize=False):
         """

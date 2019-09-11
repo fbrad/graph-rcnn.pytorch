@@ -3,12 +3,19 @@ import bisect
 import torch
 from torch.utils import data
 from .vg_hdf5 import vg_hdf5
+from .vcr_hdf5 import vcr_hdf5
 from . import samplers
 from .transforms import build_transforms
 from .collate_batch import BatchCollator
 from lib.scene_parser.rcnn.utils.comm import get_world_size, get_rank
 
 def make_data_sampler(dataset, shuffle, distributed):
+    """
+    :param dataset:
+    :param shuffle: True if split == 'train' False otherwise
+    :param distributed: True if num_gpus > 1
+    :return:
+    """
     if distributed:
         return samplers.DistributedSampler(dataset, shuffle=shuffle)
     if shuffle:
@@ -58,7 +65,10 @@ def build_data_loader(cfg, split="train", num_im=-1, is_distributed=False, start
     if cfg.DATASET.NAME == "vg" and cfg.DATASET.MODE == "benchmark":
         transforms = build_transforms(cfg, is_train=True if split=="train" else False)
         dataset = vg_hdf5(cfg, split=split, transforms=transforms, num_im=num_im)
-        sampler = make_data_sampler(dataset, True if split == "train" else False, is_distributed)
+
+        sampler = make_data_sampler(dataset, True if split == "train"
+                else False, is_distributed)
+
         images_per_batch = cfg.DATASET.TRAIN_BATCH_SIZE if split == "train" else cfg.DATASET.TEST_BATCH_SIZE
         if get_rank() == 0:
             print("images_per_batch: {}, num_gpus: {}".format(images_per_batch, num_gpus))
@@ -76,6 +86,54 @@ def build_data_loader(cfg, split="train", num_im=-1, is_distributed=False, start
                 collate_fn=collator,
             )
         return dataloader
+    elif cfg.DATASET.NAME == "vcr" and cfg.DATASET.MODE == "benchmark":
+        #transforms = build_transforms(cfg,
+        #                              is_train=True if split == "train"
+        #                              else False)
+        # build Dataset
+        dataset = vcr_hdf5(cfg)
+
+        # build DataSampler
+        # sequential Sampler, non-distributed
+        sampler = make_data_sampler(dataset, False, False)
+
+        images_per_batch = cfg.DATASET.TRAIN_BATCH_SIZE if split == "train" \
+                else cfg.DATASET.TEST_BATCH_SIZE
+
+        images_per_gpu = images_per_batch // num_gpus if split == "train" else\
+                images_per_batch
+        start_iter = 0
+        num_iters = None
+        #aspect_grouping = [1] if cfg.DATASET.ASPECT_RATIO_GROUPING else []
+        aspect_grouping = []
+
+        # batch random pictures or group them based on the aspect
+        batch_sampler = make_batch_data_sampler(
+            dataset, sampler, aspect_grouping, images_per_gpu, num_iters,
+            start_iter
+        )
+
+        #collator = BatchCollator(cfg.DATASET.SIZE_DIVISIBILITY)
+        collator = BatchCollator(32)
+
+        # build DataLoader
+        dataloader = data.DataLoader(dataset,
+                                     num_workers=0,
+                                     batch_sampler=batch_sampler)
+                                     #collate_fn=collator
+                                     #)
+        #print("[build.py:124] num_gpus = ", num_gpus)
+
+        #for i, ex in enumerate(dataloader, 0):
+        #    print("[build:127] ex size = ", ex.size())
+            #imgs, boxes, image_ids = ex
+
+
+        return dataloader
+
+        #print("[data/build:83] num_im = ", num_im)
+        #dataset = vcr_hdf5(cfg, split=split, transforms=transforms,
+        #                   num_im=num_im)
     else:
         raise NotImplementedError("Unsupported dataset {}.".format(cfg.DATASET.NAME))
 #         cfg.data_dir = "data/vg"

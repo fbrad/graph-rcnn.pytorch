@@ -79,6 +79,17 @@ def test(cfg, args, model=None):
         model = build_model(cfg, arguments, args.local_rank, args.distributed)
     model.test(visualize=args.visualize)
 
+def predict(cfg, args, model=None):
+    """
+    test scene graph generation model
+    """
+    if model is None:
+        arguments = {}
+        arguments["iteration"] = 0
+        model = build_model(cfg, arguments, args.local_rank, args.distributed)
+    model.predict(visualize=args.visualize)
+
+
 def main():
     ''' parse config file '''
     parser = argparse.ArgumentParser(description="Graph Reasoning Machine for Visual Question Answering")
@@ -121,7 +132,7 @@ def main():
     if not args.inference:
         model = train(cfg, args)
     else:
-        test(cfg, args)
+        predict(cfg, args)
 
 if __name__ == "__main__":
     main()
