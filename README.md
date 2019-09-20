@@ -1,5 +1,17 @@
-# graph-rcnn.pytorch
-Pytorch code for our ECCV 2018 paper ["Graph R-CNN for Scene Graph Generation"](https://arxiv.org/pdf/1808.00191.pdf)
+# Scene Graph Generation for VCR
+This repo forks https://github.com/jwyang/graph-rcnn.pytorch. 
+in order to extract Scene Graph triplets from the
+[Visual Commonsense Reasoning](https://visualcommonsense.com/)
+dataset.
+
+### Extract triplets from VCR:
+
+* Faster r-cnn model with ResNet-101-C4 as backbone:
+```
+python main.py --config-file configs/vcr_sgg_res101_step.yaml --inference
+```
+
+# Original README
 
 <div style="color:#0000FF" align="center">
 <img src="figures/teaser_fig.png" width="850"/>
