@@ -5,13 +5,16 @@ import time
 import numpy as np
 import torch
 import cv2
+from typing import List
+from lib.scene_parser.rcnn.structures.bounding_box import BoxList
+from lib.scene_parser.rcnn.structures.bounding_box_pair import BoxPairList
 from .data.build import build_data_loader
 from .scene_parser.parser import build_scene_parser
 from .scene_parser.parser import build_scene_parser_optimizer
 from .scene_parser.rcnn.utils.metric_logger import MetricLogger
 from .scene_parser.rcnn.utils.timer import Timer, get_time_str
 from .scene_parser.rcnn.utils.comm import synchronize, all_gather, is_main_process, get_world_size
-from .scene_parser.rcnn.utils.visualize import select_top_predictions, overlay_boxes, overlay_class_names
+from .scene_parser.rcnn.utils.visualize import select_top_predictions, select_top_relations, overlay_boxes, overlay_class_names
 from .data.evaluation import evaluate, evaluate_sg
 from .utils.box import bbox_overlaps
 
@@ -195,16 +198,69 @@ class SceneGraphGeneration:
 
     def visualize_detection(self, dataset, img_ids, imgs, predictions):
         visualize_folder = "visualize"
+        idx_to_obj = self.data_loader_test.dataset.ind_to_classes
         if not os.path.exists(visualize_folder):
             os.mkdir(visualize_folder)
         for i, prediction in enumerate(predictions):
+            all_scores = prediction.get_field("scores").tolist()
+            all_labels = prediction.get_field("labels").tolist()
+
             top_prediction = select_top_predictions(prediction)
+
+            # save top predicted objects and their probabilities
+            scores = top_prediction.get_field("scores").tolist()
+            labels = top_prediction.get_field("labels").tolist()
+            fpath = os.path.join(visualize_folder,
+                                 "detection_{}.txt".format(img_ids[i]))
+
+            with open(fpath, "w") as f:
+                for label, score in zip(all_labels, all_scores):
+                    label = idx_to_obj[label]
+                    f.write(label + " " + str(score) + "\n")
+
             #img = imgs.tensors[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
             img = imgs[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
             result = img.copy()
             result = overlay_boxes(result, top_prediction)
             result = overlay_class_names(result, top_prediction, dataset.ind_to_classes)
             cv2.imwrite(os.path.join(visualize_folder, "detection_{}.jpg".format(img_ids[i])), result)
+
+    def get_triplets_as_string(self,
+                               top_obj: BoxList,
+                               top_pred: BoxPairList) -> List[str]:
+        """
+        Given top detected objects and top predicted relationships, return
+        the triplets in human-readable form.
+        :param top_obj: BoxList containing top detected objects
+        :param top_pred: BoxPairList containing the top detected triplets
+        :return: List of triplets (in decreasing score order)
+        """
+        # num_detected_objects
+        obj_indices = top_obj.get_field("labels")
+
+        # 100 x 2 (indices in obj_indices)
+        obj_pairs_indices = top_pred.get_field("idx_pairs")
+
+        # 100 (indices in GLOBAL relationship indices list)
+        rel_indices = top_pred.get_field("scores").max(1)[1]
+
+        # 100 x 3
+        top_triplets = torch.stack((
+            obj_indices[obj_pairs_indices[:, 0]],
+            obj_indices[obj_pairs_indices[:, 1]],
+            rel_indices), 1).tolist()
+
+        idx_to_obj = self.data_loader_test.dataset.ind_to_classes
+        idx_to_rel = self.data_loader_test.dataset.ind_to_predicates
+
+        # convert integers to labels
+        top_triplets_str = []
+        for t in top_triplets:
+            top_triplets_str.append(idx_to_obj[t[0]] + " " +
+                                    idx_to_rel[t[2]] + " " +
+                                    idx_to_obj[t[1]])
+
+        return top_triplets_str
 
     def predict(self, visualize=False):
         """
@@ -301,6 +357,51 @@ class SceneGraphGeneration:
             if self.cfg.MODEL.RELATION_ON:
                 torch.save(predictions_pred,
                            os.path.join(output_folder, "predictions_pred.pth"))
+
+        top_objs, top_preds = self.scene_parser._post_processing((
+                predictions,
+                predictions_pred
+        ))
+
+        for idx, (top_obj, top_pred) in enumerate(zip(top_objs, top_preds)):
+            # save tuples in results/image_name.txt
+            fname = os.path.basename(
+                    self.data_loader_test.dataset.get_img_fname(idx)
+            )
+            txt_fname = fname.replace('.jpg', '.txt')
+            fname_path = os.path.join(output_folder, txt_fname)
+            with open(fname_path, "w") as f:
+                top_triplets = self.get_triplets_as_string(top_obj, top_pred)
+                for triplet in top_triplets:
+                    f.write(triplet + "\n")
+
+        # iterate through BoxPairList
+        # for img_idx, result_pred in results_pred_dict.items():
+        #     img_idx = img_idx.item()
+        #     fname = os.path.basename(
+        #             self.data_loader_test.dataset.get_img_fname(img_idx))
+        #
+        #     txt_fname = fname.replace('.jpg', '.txt')
+        #     fname_path = os.path.join(output_folder, txt_fname)
+        #     with open(fname_path, "w") as f:
+        #         top_relations = select_top_relations(result_pred)
+        #         top5_relations = top_relations[:50]
+        #
+        #         obj_pairs_indices = top5_relations.get_field("idx_pairs")
+        #         relation_indices = top5_relations.get_field("idx_relation")
+        #
+        #         idx_to_obj = self.data_loader_test.dataset.ind_to_classes
+        #         idx_to_rel = self.data_loader_test.dataset.ind_to_predicates
+        #
+        #         for idx in range(len(obj_pairs_indices)):
+        #             o1_idx = obj_pairs_indices[idx][0].item()
+        #             o2_idx = obj_pairs_indices[idx][1].item()
+        #             rel_idx = relation_indices[idx].item()
+        #
+        #             o1 = idx_to_obj[o1_idx]
+        #             o2 = idx_to_obj[o2_idx]
+        #             rel = idx_to_rel[rel_idx]
+        #             f.write(o1 + " " + rel + " " + o2 + "\n")
 
     def test(self, timer=None, visualize=False):
         """

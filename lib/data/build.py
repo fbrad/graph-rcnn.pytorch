@@ -87,11 +87,11 @@ def build_data_loader(cfg, split="train", num_im=-1, is_distributed=False, start
             )
         return dataloader
     elif cfg.DATASET.NAME == "vcr" and cfg.DATASET.MODE == "benchmark":
-        #transforms = build_transforms(cfg,
-        #                              is_train=True if split == "train"
-        #                              else False)
+        transforms = build_transforms(cfg,
+                                      is_train=True if split == "train"
+                                      else False)
         # build Dataset
-        dataset = vcr_hdf5(cfg)
+        dataset = vcr_hdf5(cfg, transforms=transforms)
 
         # build DataSampler
         # sequential Sampler, non-distributed

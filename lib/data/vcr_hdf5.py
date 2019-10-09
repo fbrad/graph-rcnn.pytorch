@@ -15,6 +15,8 @@ from pycocotools.coco import COCO
 from torch.utils.data import Dataset
 from lib.scene_parser.rcnn.structures.bounding_box import BoxList
 from lib.utils.box import bbox_overlaps
+from .transforms import Compose
+from torchvision.transforms import ToPILImage
 
 # class vcr_hdf5(Dataset):
 #     def __init__(self, cfg):
@@ -22,7 +24,7 @@ from lib.utils.box import bbox_overlaps
 #         self.dataset_json_fn = "mini_val.json"
 
 class vcr_hdf5(Dataset):
-    def __init__(self, cfg):
+    def __init__(self, cfg, transforms: Compose = None):
         self.data_dir = cfg.DATASET.PATH
 
         # keep same object and predicate indices as in Visual Genome
@@ -39,9 +41,11 @@ class vcr_hdf5(Dataset):
         self.predicate_to_ind['__background__'] = 0
         self.ind_to_predicates = sorted(self.predicate_to_ind, key=lambda k:
                                         self.predicate_to_ind[k])
+        self.transforms = transforms
 
         # list of all image filenames (from all subdirs of self.image_dir)
         img_fns = glob.glob(self.data_dir + "/*/*.jpg")
+        self.img_fns = img_fns
         img_meta_fns = [fn.replace(".jpg", ".json") for fn in img_fns]
 
         # allocate memory for all files
@@ -80,7 +84,9 @@ class vcr_hdf5(Dataset):
 
             #print("[vcr] hscaled, wscaled = ", hscaled, wscaled)
             img = cv2.resize(img_data, dsize=(wscaled, hscaled))
+
             img_tensor = torch.from_numpy(img).permute(2, 0, 1)
+            #print("[vcr_hdf5] img_tensor = ", img_tensor.size())
 
             #copy image tensor to dataset tensor
             self.images[idx, :, 0:hscaled] = img_tensor
@@ -126,15 +132,38 @@ class vcr_hdf5(Dataset):
         return self.images.size(0)
 
     def __getitem__(self, index):
-        print("[get_item:165] index = ", index)
-        img = self.image
-        print("HAHAHHAHA")
-        return self.images[index], None, index
+        #img = Image.fromarray(self.images[index].numpy())
+        sizes = self.images[index].size()
+        w, h = sizes[1], sizes[2]
+        # print("[vcr_hdf5] sizes = ", w, h)
+        to_pil = ToPILImage()
+        img = to_pil(self.images[index])
+        target = img.copy()
+        #print(img.size)
+        #img.size = (w, h)
+        img, _ = self.transforms(img, target)
+        #cv2.imshow(
+
+        return img, self.boxes[index], self.objects[index], index
+        #return self.images[index], self.boxes[index], self.objects[index], index
+
+    # def __getitem__(self, index):
+    #     print("[get_item:165] index = ", index)
+    #     img = self.image
+    #     return self.images[index], None, index
 
     def get_img_info(self, idx):
         w, h = self.img_info[idx]
         return {"height": h, "width": w}
 
+    def get_img_fname(self, idx) -> str:
+        """
+        Returns the name of the .jpg file corresponding to the example at
+        index idx
+        :param idx:
+        :return: str
+        """
+        return self.img_fns[idx]
 
     def _get_dets_to_use(self, item):
         """
@@ -203,6 +232,3 @@ class vcr_hdf5(Dataset):
                           (round(box[2]), round(box[3])), color=(255, 255, 255))
             cv2.imshow('ImageWindow', img_data)
             cv2.waitKey()
-
-    def __getitem__(self, index):
-        return self.images[index], self.boxes[index], self.objects[index], index

@@ -20,6 +20,29 @@ def select_top_predictions(predictions, confidence_threshold=0.2):
     _, idx = scores.sort(0, descending=True)
     return predictions[idx]
 
+def select_top_relations(predictions, confidence_threshold=0.05):
+    """
+    Select only relations which have a `score` > self.confidence_threshold,
+    and returns the relations in descending order of score
+    Arguments:
+        predictions (BoxPairList): the result of the computation by the model.
+            It should contain the field `scores`.
+    Returns:
+        prediction (BoxPairList): the predicted relations.
+    """
+    # for each object pair, get the maximum score of predicted relations probs
+    # Tensor(num_predictions)
+    max_scores, _ = torch.max(predictions.get_field("scores"), dim = 1)
+    keep = torch.nonzero(max_scores > confidence_threshold).squeeze(1)
+    predictions = predictions[keep]
+    max_scores, relation_indices = torch.max(predictions.get_field("scores"),
+                                             dim = 1)
+    # add predicted relation index to BoxPairList
+    predictions.add_field("idx_relation", relation_indices)
+
+    _, idx = max_scores.sort(0, descending=True)
+    return predictions[idx]
+
 def compute_colors_for_labels(labels, palette = torch.tensor([2 ** 25 - 1, 2 ** 15 - 1, 2 ** 21 - 1])):
     """
     Simple function that adds fixed colors depending on the class

@@ -23,6 +23,7 @@ class FastRCNNPredictor(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         cls_logit = self.cls_score(x)
+
         return cls_logit
 
 

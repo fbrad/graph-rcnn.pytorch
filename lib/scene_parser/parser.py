@@ -136,8 +136,8 @@ class SceneParser(GeneralizedRCNN):
                 # this makes the API consistent during training and testing
                 x_pairs, detection_pairs, rel_heads_loss = self.rel_heads(relation_features, detections, targets)
                 scene_parser_losses.update(rel_heads_loss)
-
                 x = (x, x_pairs)
+
                 result = (detections, detection_pairs)
         else:
             # RPN-only models don't have roi_heads
