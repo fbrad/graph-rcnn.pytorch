@@ -24,7 +24,7 @@ from torchvision.transforms import ToPILImage
 #         self.dataset_json_fn = "mini_val.json"
 
 class vcr_hdf5(Dataset):
-    def __init__(self, cfg, transforms: Compose = None):
+    def __initold__(self, cfg, transforms: Compose = None):
         self.data_dir = cfg.DATASET.PATH
 
         # keep same object and predicate indices as in Visual Genome
@@ -100,6 +100,49 @@ class vcr_hdf5(Dataset):
 
         #print("[VCR] img_folders = ", img_folders)
 
+    def __init__(self, cfg, split: str = "train", transforms: Compose = None):
+        # datasets/vcr
+        self.data_dir = cfg.DATASET.PATH
+
+        # keep same object and predicate indices as in Visual Genome
+        self.info = json.load(open(os.path.join(self.data_dir,
+                                                "VG-SGG-dicts.json"), 'r'))
+
+        # load object and predicate indices
+        self.info['label_to_idx']['__background__'] = 0
+        self.class_to_ind = self.info['label_to_idx']
+        self.ind_to_classes = sorted(self.class_to_ind, key=lambda k:
+                                        self.class_to_ind[k])
+        self.predicate_to_ind = self.info['predicate_to_idx']
+        self.predicate_to_ind['__background__'] = 0
+        self.ind_to_predicates = sorted(self.predicate_to_ind, key=lambda k:
+                                        self.predicate_to_ind[k])
+
+        # load transforms (series of operations on PIL data)
+        self.transforms = transforms
+
+        # load annotation information
+        annotation_file = os.path.join(self.data_dir, '{}.jsonl'.format(split))
+        with open(annotation_file, 'r') as f:
+            self.items = [json.loads(line) for line in f]
+
+        # load image metadata (possibly move loading of metadata
+        # inside __getitem__)
+        self.boxes = []
+        self.objects = []
+        for item in self.items:
+            # load image metadata
+            meta_fn = os.path.join(self.data_dir, item['metadata_fn'])
+            with open(meta_fn, 'r') as f:
+                meta_item = json.load(f)
+                img_boxes = meta_item["boxes"] # num_objs x 5
+                img_objects = meta_item["names"] # num_objs
+
+                self.boxes.append(torch.tensor(img_boxes))
+                self.objects.append(img_objects)
+
+        self.to_pil_obj = ToPILImage()
+
     @property
     def is_train(self):
         return self.split == 'train'
@@ -128,29 +171,31 @@ class vcr_hdf5(Dataset):
         return tuple(stuff_to_return)
 
     def __len__(self):
-        #return len(self.items)
-        return self.images.size(0)
+        return len(self.items)
 
-    def __getitem__(self, index):
-        #img = Image.fromarray(self.images[index].numpy())
-        sizes = self.images[index].size()
-        w, h = sizes[1], sizes[2]
-        # print("[vcr_hdf5] sizes = ", w, h)
+    def __old_getitem__(self, index):
+        # img = Image.fromarray(self.images[index].numpy())
+        # sizes = self.images[index].size()
+        # w, h = sizes[1], sizes[2]
         to_pil = ToPILImage()
         img = to_pil(self.images[index])
         target = img.copy()
-        #print(img.size)
-        #img.size = (w, h)
         img, _ = self.transforms(img, target)
-        #cv2.imshow(
+
+        #return img, self.boxes[index], self.objects[index], index
+        return self.images[index], self.boxes[index], self.objects[index], index
+
+    def __getitem__(self, index):
+        item = self.items[index]
+        img_fn = os.path.join(self.data_dir, item['img_fn'])
+        img_data = cv2.imread(img_fn)
+        assert img_data.ndim == 3, "Grayscale image"
+
+        piled_img = self.to_pil_obj(img_data)
+        target = piled_img.copy()
+        img, _ = self.transforms(piled_img, target)
 
         return img, self.boxes[index], self.objects[index], index
-        #return self.images[index], self.boxes[index], self.objects[index], index
-
-    # def __getitem__(self, index):
-    #     print("[get_item:165] index = ", index)
-    #     img = self.image
-    #     return self.images[index], None, index
 
     def get_img_info(self, idx):
         w, h = self.img_info[idx]
@@ -163,7 +208,7 @@ class vcr_hdf5(Dataset):
         :param idx:
         :return: str
         """
-        return self.img_fns[idx]
+        return self.items[idx]['img_fn']
 
     def _get_dets_to_use(self, item):
         """

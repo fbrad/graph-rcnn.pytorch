@@ -218,12 +218,24 @@ class SceneGraphGeneration:
                     label = idx_to_obj[label]
                     f.write(label + " " + str(score) + "\n")
 
-            #img = imgs.tensors[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
-            img = imgs[i].permute(1, 2, 0).contiguous().cpu().numpy() + np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
+            # w x h x c
+            img = imgs[i].permute(1, 2, 0).contiguous().cpu().numpy() + \
+                  np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
+            # BGR -> RGB or the other way around
+            img = img[:, :, [2, 1, 0]]
+
             result = img.copy()
             result = overlay_boxes(result, top_prediction)
-            result = overlay_class_names(result, top_prediction, dataset.ind_to_classes)
-            cv2.imwrite(os.path.join(visualize_folder, "detection_{}.jpg".format(img_ids[i])), result)
+            result = overlay_class_names(
+                    result,
+                    top_prediction,
+                    dataset.ind_to_classes
+            )
+            cv2.imwrite(
+                    os.path.join(visualize_folder,
+                                 "detection_{}.jpg".format(img_ids[i])),
+                    result
+            )
 
     def get_triplets_as_string(self,
                                top_obj: BoxList,
@@ -358,7 +370,7 @@ class SceneGraphGeneration:
                 torch.save(predictions_pred,
                            os.path.join(output_folder, "predictions_pred.pth"))
 
-        top_objs, top_preds = self.scene_parser._post_processing((
+        top_objs, top_preds, top_scores = self.scene_parser._post_processing((
                 predictions,
                 predictions_pred
         ))
@@ -372,8 +384,8 @@ class SceneGraphGeneration:
             fname_path = os.path.join(output_folder, txt_fname)
             with open(fname_path, "w") as f:
                 top_triplets = self.get_triplets_as_string(top_obj, top_pred)
-                for triplet in top_triplets:
-                    f.write(triplet + "\n")
+                for triplet, score in zip(top_triplets, top_scores[idx]):
+                    f.write(triplet + " " + str(score) + "\n")
 
         # iterate through BoxPairList
         # for img_idx, result_pred in results_pred_dict.items():

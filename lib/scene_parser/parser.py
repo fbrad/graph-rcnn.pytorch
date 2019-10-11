@@ -78,7 +78,7 @@ class SceneParser(GeneralizedRCNN):
             sort the object-predicate triplets, and output the top
         """
         result_obj, result_pred = result
-        result_obj_new, result_pred_new = [], []
+        result_obj_new, result_pred_new, top_scores = [], [], []
         assert len(result_obj) == len(result_pred), "object list must have equal number to predicate list"
         for result_obj_i, result_pred_i in zip(result_obj, result_pred):
             obj_scores = result_obj_i.get_field("scores")
@@ -93,7 +93,10 @@ class SceneParser(GeneralizedRCNN):
             result_pred_i = result_pred_i[order[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG]]
             result_obj_new.append(result_obj_i)
             result_pred_new.append(result_pred_i)
-        return (result_obj_new, result_pred_new)
+            top_scores.append(
+                    scores_sorted[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG].tolist()
+            )
+        return result_obj_new, result_pred_new, top_scores
 
     def forward(self, images, targets=None):
         """

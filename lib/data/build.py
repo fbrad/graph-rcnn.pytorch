@@ -91,7 +91,7 @@ def build_data_loader(cfg, split="train", num_im=-1, is_distributed=False, start
                                       is_train=True if split == "train"
                                       else False)
         # build Dataset
-        dataset = vcr_hdf5(cfg, transforms=transforms)
+        dataset = vcr_hdf5(cfg, split = "mini_val", transforms=transforms)
 
         # build DataSampler
         # sequential Sampler, non-distributed
