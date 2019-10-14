@@ -31,15 +31,24 @@ class SceneGraphGeneration:
         self.device = torch.device("cuda")
 
         # build data loader
-        self.data_loader_train = build_data_loader(cfg, split="train", is_distributed=distributed)
-        self.data_loader_test = build_data_loader(cfg, split="test", is_distributed=distributed)
+        if cfg.inference:
+            self.data_loader_test = build_data_loader(
+                cfg, split=cfg.split, is_distributed=distributed)
+        else:
+            self.data_loader_train = build_data_loader(
+                    cfg, split="train", is_distributed=distributed)
+            self.data_loader_test = build_data_loader(
+                    cfg, split="test", is_distributed=distributed)
 
-        cfg.DATASET.IND_TO_OBJECT = self.data_loader_train.dataset.ind_to_classes
-        cfg.DATASET.IND_TO_PREDICATE = self.data_loader_train.dataset.ind_to_predicates
+        cfg.DATASET.IND_TO_OBJECT = self.data_loader_test.dataset.ind_to_classes
+        cfg.DATASET.IND_TO_PREDICATE = self.data_loader_test.dataset.ind_to_predicates
 
         logger = logging.getLogger("scene_graph_generation.trainer")
-        logger.info("Train data size: {}".format(len(self.data_loader_train.dataset)))
-        logger.info("Test data size: {}".format(len(self.data_loader_test.dataset)))
+        if not cfg.inference:
+            logger.info("Train data size: {}".format(
+                    len(self.data_loader_train.dataset)))
+        logger.info("Test data size: {}".format(
+                    len(self.data_loader_test.dataset)))
 
         if not os.path.exists("freq_prior.npy"):
             logger.info("Computing frequency prior matrix...")

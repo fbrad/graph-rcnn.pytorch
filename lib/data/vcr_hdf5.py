@@ -18,11 +18,6 @@ from lib.utils.box import bbox_overlaps
 from .transforms import Compose
 from torchvision.transforms import ToPILImage
 
-# class vcr_hdf5(Dataset):
-#     def __init__(self, cfg):
-#         self.data_dir = cfg.DATASET.PATH
-#         self.dataset_json_fn = "mini_val.json"
-
 class vcr_hdf5(Dataset):
     def __initold__(self, cfg, transforms: Compose = None):
         self.data_dir = cfg.DATASET.PATH
@@ -126,8 +121,10 @@ class vcr_hdf5(Dataset):
         with open(annotation_file, 'r') as f:
             self.items = [json.loads(line) for line in f]
 
-        # load image metadata (possibly move loading of metadata
-        # inside __getitem__)
+        # update self.data_dir
+        self.data_dir = os.path.join(self.data_dir, "vcr1images")
+
+        # load image metadata
         self.boxes = []
         self.objects = []
         for item in self.items:
