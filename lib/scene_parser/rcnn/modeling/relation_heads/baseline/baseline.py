@@ -20,13 +20,14 @@ class Baseline(nn.Module):
 
     def forward(self, features, proposals, proposal_pairs):
         obj_class_logits = None # no need to predict object class again
+        rel_embs = None
         if self.training:
             x, rel_inds = self.pred_feature_extractor(features, proposals, proposal_pairs)
-            rel_class_logits = self.predictor(x)
+            rel_class_logits, _ = self.predictor(x)
         else:
             with torch.no_grad():
                 x, rel_inds = self.pred_feature_extractor(features, proposals, proposal_pairs)
-                rel_class_logits = self.predictor(x)
+                rel_class_logits, rel_embs = self.predictor(x)
 
         if obj_class_logits is None:
             logits = torch.cat([proposal.get_field("logits") for proposal in proposals], 0)
@@ -34,7 +35,8 @@ class Baseline(nn.Module):
         else:
             obj_class_labels = obj_class_logits[:, 1:].max(1)[1] + 1
 
-        return x, obj_class_logits, rel_class_logits, obj_class_labels, rel_inds
+        return x, obj_class_logits, rel_class_logits, obj_class_labels, \
+               rel_inds, rel_embs
 
 def build_baseline_model(cfg, in_channels):
     return Baseline(cfg, in_channels)

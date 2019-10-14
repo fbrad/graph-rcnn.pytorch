@@ -130,7 +130,8 @@ class SceneGraphGeneration:
             self.arguments["iteration"] = i
             self.sp_scheduler.step()
             imgs, targets, _ = data
-            imgs = imgs.to(self.device); targets = [target.to(self.device) for target in targets]
+            imgs = imgs.to(self.device)
+            targets = [target.to(self.device) for target in targets]
             loss_dict = self.scene_parser(imgs, targets)
             losses = sum(loss for loss in loss_dict.values())
 
@@ -196,11 +197,29 @@ class SceneGraphGeneration:
         predictions = [predictions[i] for i in image_ids]
         return predictions
 
-    def visualize_detection(self, dataset, img_ids, imgs, predictions):
-        visualize_folder = "visualize"
+    def visualize_detection(self,
+                            img: torch.Tensor,
+                            det_img_fname: str,
+                            det_txt_fname: str,
+                            detection: BoxList
+                            ):
+        """
+        Display the detected objects on the original image and save it. Also
+        save the detected objects in text form together with their
+        probabilities.
+
+        :param img: Tensor with image
+        :param det_img_fname: path to image where detected objects are overlayed
+        :param det_txt_fname: path to text file where detected objects are saved
+        : param detection: BoxList with detected objects
+        :return:
+        """
+        #visualize_folder = "visualize"
+        #if not os.path.exists(visualize_folder):
+        #    os.mkdir(visualize_folder)
+        predictions = detection
         idx_to_obj = self.data_loader_test.dataset.ind_to_classes
-        if not os.path.exists(visualize_folder):
-            os.mkdir(visualize_folder)
+
         for i, prediction in enumerate(predictions):
             all_scores = prediction.get_field("scores").tolist()
             all_labels = prediction.get_field("labels").tolist()
@@ -210,16 +229,14 @@ class SceneGraphGeneration:
             # save top predicted objects and their probabilities
             scores = top_prediction.get_field("scores").tolist()
             labels = top_prediction.get_field("labels").tolist()
-            fpath = os.path.join(visualize_folder,
-                                 "detection_{}.txt".format(img_ids[i]))
 
-            with open(fpath, "w") as f:
+            with open(det_txt_fname, "w") as f:
                 for label, score in zip(all_labels, all_scores):
                     label = idx_to_obj[label]
                     f.write(label + " " + str(score) + "\n")
 
             # w x h x c
-            img = imgs[i].permute(1, 2, 0).contiguous().cpu().numpy() + \
+            img = img.permute(1, 2, 0).contiguous().cpu().numpy() + \
                   np.array(self.cfg.INPUT.PIXEL_MEAN).reshape(1, 1, 3)
             # BGR -> RGB or the other way around
             img = img[:, :, [2, 1, 0]]
@@ -229,13 +246,9 @@ class SceneGraphGeneration:
             result = overlay_class_names(
                     result,
                     top_prediction,
-                    dataset.ind_to_classes
+                    idx_to_obj
             )
-            cv2.imwrite(
-                    os.path.join(visualize_folder,
-                                 "detection_{}.jpg".format(img_ids[i])),
-                    result
-            )
+            cv2.imwrite(det_img_fname, result)
 
     def get_triplets_as_string(self,
                                top_obj: BoxList,
@@ -285,11 +298,13 @@ class SceneGraphGeneration:
         logger.info("Start predicting")
 
         test_size = len(self.data_loader_test.dataset)
+        data_dir = self.data_loader_test.dataset.data_dir
         self.scene_parser.eval()
         cpu_device = torch.device("cpu")
         results_dict = {}
         if self.cfg.MODEL.RELATION_ON:
             results_pred_dict = {}
+        rel_embs_dict = {}
 
         total_timer = Timer()
         inference_timer = Timer()
@@ -297,11 +312,11 @@ class SceneGraphGeneration:
 
         reg_recalls = []
         for i, data in enumerate(self.data_loader_test, 0):
-            #print("[model.py:233] data = ", data.size())
             imgs, boxes, objects, image_ids = data
-            print("[model.py:233] imgs = ", imgs.size())
             imgs = imgs.to(self.device)
             boxes = boxes.to(self.device)
+
+            #print("[model.py:233] imgs = ", imgs.size())
             if i % 10 == 0:
                 logger.info("prediction on batch {}/{}...".
                             format(i, len(self.data_loader_test)))
@@ -310,18 +325,66 @@ class SceneGraphGeneration:
                 # predict relations between objects
                 output = self.scene_parser(imgs)
                 if self.cfg.MODEL.RELATION_ON:
-                    output, output_pred = output
+                    output, output_pred, rel_embs = output
                     output_pred = [o.to(cpu_device) for o in output_pred]
                     output = [o.to(cpu_device) for o in output]
 
-                if visualize:
-                   self.visualize_detection(self.data_loader_test.dataset,
-                           image_ids, imgs, output)
+                # there are B examples in output (most likely B=1 at inference)
+                # top_objs = [BoxList_1(num_boxes = 47),..., BoxList_B]
+                # top_preds = [BoxPairList_1(num_boxes = 50), ... BoxPairList_B]
+                # top_scores = [[50 top scores for example 1], ..., example B]
+                # top_order = [[100 indices for example 1], ..., example B]
+                top_objs, top_preds, top_scores, top_orders = \
+                    self.scene_parser._post_processing((output,
+                                                        output_pred
+                                                        ))
 
+                # save triplets (text + embedding) in dataset folder:
+                # dataset/$movie_name/
+                # 			          $img@0.detection.jpg - detected objects
+                # 			          $img@0.detection.txt - top K detections
+                # 			          $img@0.triplets.txt - top K triplets
+                # 			          $img@0.triplets.pth - top K triplet embs
+                for idx, (top_obj, top_pred, top_order) in enumerate(
+                        zip(top_objs, top_preds, top_orders)):
+                    fname = self.data_loader_test.dataset.get_img_fname(image_ids[idx])
+
+                    sgg_txt_fname = fname.replace('.jpg', '.triplets.txt')
+                    sgg_emb_fname = fname.replace('.jpg', '.triplets.pth')
+
+                    # write top K triplets plus their probabilities
+                    with open(os.path.join(data_dir, sgg_txt_fname), 'w') as f:
+                        top_triplets = self.get_triplets_as_string(top_obj,
+                                                                   top_pred)
+                        for triplet, score in zip(top_triplets,
+                                                  top_scores[idx]):
+                            f.write(triplet + " " + str(score) + "\n")
+
+                    # write top K embeddings
+                    top_rel_embs = rel_embs[top_order].to(cpu_device)
+                    torch.save(top_rel_embs, os.path.join(data_dir,
+                                                          sgg_emb_fname))
+
+                # save detected objects and their probabilities
+                if visualize:
+                   fname = self.data_loader_test.dataset.get_img_fname(image_ids[0])
+                   det_img_fname = fname.replace('.jpg', '.detection.jpg')
+                   det_txt_fname = fname.replace('.jpg', '.detection.txt')
+                   self.visualize_detection(imgs[0],
+                                            os.path.join(data_dir, det_img_fname),
+                                            os.path.join(data_dir, det_txt_fname),
+                                            output)
+
+            # {1: BoxList(), ... }
             results_dict.update(
                 {img_id: result for img_id, result in zip(image_ids, output)}
             )
+            # {1: T(#num_proposals, 2048)}
+            rel_embs_dict.update(
+                {img_id: rel_embs for img_id in image_ids }
+            )
             if self.cfg.MODEL.RELATION_ON:
+                # {1: BoxPairList(), ... }
                 results_pred_dict.update(
                     {img_id: result for img_id, result in zip(image_ids,
                                                               output_pred)}
@@ -354,66 +417,14 @@ class SceneGraphGeneration:
 
         predictions = self._accumulate_predictions_from_multiple_gpus(
                         results_dict)
+        relation_embeddings = self._accumulate_predictions_from_multiple_gpus(
+                    rel_embs_dict)
         if self.cfg.MODEL.RELATION_ON:
             predictions_pred = self._accumulate_predictions_from_multiple_gpus(
                         results_pred_dict)
         if not is_main_process():
             return
 
-        output_folder = "results"
-        if output_folder:
-            if not os.path.exists(output_folder):
-                os.mkdir(output_folder)
-            torch.save(predictions, os.path.join(output_folder,
-                                                 "predictions.pth"))
-            if self.cfg.MODEL.RELATION_ON:
-                torch.save(predictions_pred,
-                           os.path.join(output_folder, "predictions_pred.pth"))
-
-        top_objs, top_preds, top_scores = self.scene_parser._post_processing((
-                predictions,
-                predictions_pred
-        ))
-
-        for idx, (top_obj, top_pred) in enumerate(zip(top_objs, top_preds)):
-            # save tuples in results/image_name.txt
-            fname = os.path.basename(
-                    self.data_loader_test.dataset.get_img_fname(idx)
-            )
-            txt_fname = fname.replace('.jpg', '.txt')
-            fname_path = os.path.join(output_folder, txt_fname)
-            with open(fname_path, "w") as f:
-                top_triplets = self.get_triplets_as_string(top_obj, top_pred)
-                for triplet, score in zip(top_triplets, top_scores[idx]):
-                    f.write(triplet + " " + str(score) + "\n")
-
-        # iterate through BoxPairList
-        # for img_idx, result_pred in results_pred_dict.items():
-        #     img_idx = img_idx.item()
-        #     fname = os.path.basename(
-        #             self.data_loader_test.dataset.get_img_fname(img_idx))
-        #
-        #     txt_fname = fname.replace('.jpg', '.txt')
-        #     fname_path = os.path.join(output_folder, txt_fname)
-        #     with open(fname_path, "w") as f:
-        #         top_relations = select_top_relations(result_pred)
-        #         top5_relations = top_relations[:50]
-        #
-        #         obj_pairs_indices = top5_relations.get_field("idx_pairs")
-        #         relation_indices = top5_relations.get_field("idx_relation")
-        #
-        #         idx_to_obj = self.data_loader_test.dataset.ind_to_classes
-        #         idx_to_rel = self.data_loader_test.dataset.ind_to_predicates
-        #
-        #         for idx in range(len(obj_pairs_indices)):
-        #             o1_idx = obj_pairs_indices[idx][0].item()
-        #             o2_idx = obj_pairs_indices[idx][1].item()
-        #             rel_idx = relation_indices[idx].item()
-        #
-        #             o1 = idx_to_obj[o1_idx]
-        #             o2 = idx_to_obj[o2_idx]
-        #             rel = idx_to_rel[rel_idx]
-        #             f.write(o1 + " " + rel + " " + o2 + "\n")
 
     def test(self, timer=None, visualize=False):
         """

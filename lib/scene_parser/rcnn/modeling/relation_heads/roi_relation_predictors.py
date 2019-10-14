@@ -20,11 +20,19 @@ class FastRCNNPredictor(nn.Module):
         nn.init.constant_(self.cls_score.bias, 0)
 
     def forward(self, x):
+        """
+        Return the relation logits for all pair proposals, as well as the
+        relation embeddings.
+
+        :param x:
+        :return:
+        """
         x = self.avgpool(x)
+        # num_pairs x 2048
         x = x.view(x.size(0), -1)
         cls_logit = self.cls_score(x)
 
-        return cls_logit
+        return cls_logit, x
 
 
 @registry.ROI_RELATION_PREDICTOR.register("FPNRelationPredictor")

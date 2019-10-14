@@ -78,7 +78,7 @@ class SceneParser(GeneralizedRCNN):
             sort the object-predicate triplets, and output the top
         """
         result_obj, result_pred = result
-        result_obj_new, result_pred_new, top_scores = [], [], []
+        result_obj_new, result_pred_new, top_scores, top_orders = [], [], [], []
         assert len(result_obj) == len(result_pred), "object list must have equal number to predicate list"
         for result_obj_i, result_pred_i in zip(result_obj, result_pred):
             obj_scores = result_obj_i.get_field("scores")
@@ -90,13 +90,18 @@ class SceneParser(GeneralizedRCNN):
                 pred_scores.max(1)[0]
             ), 1).prod(1)
             scores_sorted, order = scores.sort(0, descending=True)
-            result_pred_i = result_pred_i[order[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG]]
+            # indices of top 100 scored triplets
+            top_order = order[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG]
+
+            result_pred_i = result_pred_i[top_order]
             result_obj_new.append(result_obj_i)
             result_pred_new.append(result_pred_i)
             top_scores.append(
-                    scores_sorted[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG].tolist()
+                scores_sorted[:self.cfg.MODEL.ROI_RELATION_HEAD.TRIPLETS_PER_IMG].tolist()
             )
-        return result_obj_new, result_pred_new, top_scores
+            top_orders.append(top_order.tolist())
+
+        return result_obj_new, result_pred_new, top_scores, top_orders
 
     def forward(self, images, targets=None):
         """
@@ -137,11 +142,15 @@ class SceneParser(GeneralizedRCNN):
                     relation_features = x
                 # During training, self.box() will return the unaltered proposals as "detections"
                 # this makes the API consistent during training and testing
-                x_pairs, detection_pairs, rel_heads_loss = self.rel_heads(relation_features, detections, targets)
+                x_pairs, detection_pairs, rel_heads_loss, rel_embs = \
+                        self.rel_heads(relation_features,
+                                       detections,
+                                       targets
+                        )
                 scene_parser_losses.update(rel_heads_loss)
                 x = (x, x_pairs)
 
-                result = (detections, detection_pairs)
+                result = (detections, detection_pairs, rel_embs)
         else:
             # RPN-only models don't have roi_heads
             x = features

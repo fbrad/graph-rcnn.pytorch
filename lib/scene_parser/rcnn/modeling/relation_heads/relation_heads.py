@@ -135,8 +135,9 @@ class ROIRelationHead(torch.nn.Module):
         else:
             # extract features that will be fed to the final classifier. The
             # feature_extractor generally corresponds to the pooler + heads
-            x, obj_class_logits, pred_class_logits, obj_class_labels, rel_inds = \
-                self.rel_predictor(features, proposals, proposal_pairs)
+            x, obj_class_logits, pred_class_logits, obj_class_labels, \
+                    rel_inds, rel_embs = self.rel_predictor(features, proposals,
+                                                            proposal_pairs)
 
             if self.use_bias:
                 pred_class_logits = pred_class_logits + self.freq_bias.index_with_labels(
@@ -160,19 +161,18 @@ class ROIRelationHead(torch.nn.Module):
                     proposal.add_field("logits", obj_logit)
                     proposal.add_field("scores", obj_score)
                     proposal.add_field("labels", obj_label)
-            result = self.post_processor((pred_class_logits), proposal_pairs, use_freq_prior=self.cfg.MODEL.USE_FREQ_PRIOR)
-            return x, result, {}
+            result = self.post_processor((pred_class_logits), proposal_pairs,
+                                         use_freq_prior=self.cfg.MODEL.USE_FREQ_PRIOR)
+            return x, result, {}, rel_embs
 
         loss_obj_classifier = 0
         if obj_class_logits is not None:
             loss_obj_classifier = self.loss_evaluator.obj_classification_loss(proposals, [obj_class_logits])
         loss_pred_classifier = self.loss_evaluator([pred_class_logits])
 
-        return (
-            x,
-            proposal_pairs,
-            dict(loss_obj_classifier=loss_obj_classifier, loss_pred_classifier=loss_pred_classifier),
-        )
+        return x, proposal_pairs, dict(loss_obj_classifier=loss_obj_classifier,
+                loss_pred_classifier=loss_pred_classifier), None
+
 
 def build_roi_relation_head(cfg, in_channels):
     """
