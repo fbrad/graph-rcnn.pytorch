@@ -120,9 +120,9 @@ class SceneParser(GeneralizedRCNN):
             raise ValueError("In training mode, targets should be passed")
         images = to_image_list(images)
 
-        print("[parser.py:90] backbone inputs = ", images.tensors.size())
+        #print("[parser.py:90] backbone inputs = ", images.tensors.size())
         features = self.backbone(images.tensors)
-        print("[parser.py:90] features = ", features[0].size())
+        #print("[parser.py:90] features = ", features[0].size())
 
         proposals, proposal_losses = self.rpn(images, features, targets)
         scene_parser_losses = {}
