@@ -8,7 +8,7 @@ dataset.
 
 * Faster r-cnn model with ResNet-101-C4 as backbone:
 ```
-python main.py --config-file configs/vcr_sgg_res101_step.yaml --inference
+python main.py --config-file configs/vcr_sgg_res101_step.yaml --inference --visualize --resume 1
 ```
 
 # Original README

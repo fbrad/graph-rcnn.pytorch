@@ -97,7 +97,6 @@ def main():
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--resume", type=int, default=0)
     parser.add_argument("--inference", action='store_true')
-    parser.add_argument("--split", type=str, choices=['train', 'val', 'test'])
     parser.add_argument("--instance", type=int, default=-1)
     parser.add_argument("--use_freq_prior", action='store_true')
     parser.add_argument("--visualize", action='store_true')
@@ -117,7 +116,6 @@ def main():
     cfg.resume = args.resume
     cfg.instance = args.instance
     cfg.inference = args.inference
-    cfg.split = args.split
     cfg.MODEL.USE_FREQ_PRIOR = args.use_freq_prior
     cfg.MODEL.ALGORITHM = args.algorithm
     # cfg.freeze()

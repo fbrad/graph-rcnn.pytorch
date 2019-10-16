@@ -33,7 +33,7 @@ class SceneGraphGeneration:
         # build data loader
         if cfg.inference:
             self.data_loader_test = build_data_loader(
-                cfg, split=cfg.split, is_distributed=distributed)
+                cfg, split="test", is_distributed=distributed)
         else:
             self.data_loader_train = build_data_loader(
                     cfg, split="train", is_distributed=distributed)
