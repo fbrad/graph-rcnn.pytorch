@@ -40,6 +40,7 @@ class vcr_hdf5(Dataset):
 
         # list of all image filenames (from all subdirs of self.image_dir)
         img_fns = glob.glob(self.data_dir + "/*/*.jpg")
+        img_fns = [img_fn for img_fn in img_fns if not "detection" in img_fn]
         self.img_fns = img_fns
         img_meta_fns = [fn.replace(".jpg", ".json") for fn in img_fns]
 
@@ -116,20 +117,30 @@ class vcr_hdf5(Dataset):
         # load transforms (series of operations on PIL data)
         self.transforms = transforms
 
-        # load annotation information
+        # load all image filenames
         annotation_file = os.path.join(self.data_dir, '{}.jsonl'.format(split))
-        with open(annotation_file, 'r') as f:
-            self.items = [json.loads(line) for line in f]
+        self.items = set()
+        # with open(annotation_file, 'r') as f:
+        #     for line in f:
+        #         self.items.add(json.loads(line)["img_fn"])
 
         # update self.data_dir
         self.data_dir = os.path.join(self.data_dir, "vcr1images")
 
+        # list of all image filepaths (from all subdirs of self.image_dir)
+        img_fns = glob.glob(self.data_dir + "/*/*.jpg")
+        self.img_fns = [img_fn for img_fn in img_fns if not "detection" in img_fn]
+        #img_meta_fns = [fn.replace(".jpg", ".json") for fn in self.img_fns]
+
+        # width and height info
+        self.img_info = []
+
         # load image metadata
         self.boxes = []
         self.objects = []
-        for item in self.items:
+        for img_fn in self.img_fns:
             # load image metadata
-            meta_fn = os.path.join(self.data_dir, item['metadata_fn'])
+            meta_fn = img_fn.replace(".jpg", ".json")
             with open(meta_fn, 'r') as f:
                 meta_item = json.load(f)
                 img_boxes = meta_item["boxes"] # num_objs x 5
@@ -137,6 +148,8 @@ class vcr_hdf5(Dataset):
 
                 self.boxes.append(torch.tensor(img_boxes))
                 self.objects.append(img_objects)
+                self.img_info.append({"width": meta_item["width"],
+                                      "height": meta_item["height"]})
 
         self.to_pil_obj = ToPILImage()
 
@@ -168,7 +181,7 @@ class vcr_hdf5(Dataset):
         return tuple(stuff_to_return)
 
     def __len__(self):
-        return len(self.items)
+        return len(self.img_fns)
 
     def __old_getitem__(self, index):
         # img = Image.fromarray(self.images[index].numpy())
@@ -183,9 +196,9 @@ class vcr_hdf5(Dataset):
         return self.images[index], self.boxes[index], self.objects[index], index
 
     def __getitem__(self, index):
-        item = self.items[index]
-        img_fn = os.path.join(self.data_dir, item['img_fn'])
-        img_data = cv2.imread(img_fn)
+        #item = self.items[index]
+        #img_fn = os.path.join(self.data_dir, item['img_fn'])
+        img_data = cv2.imread(self.img_fns[index])
         assert img_data.ndim == 3, "Grayscale image"
 
         piled_img = self.to_pil_obj(img_data)
@@ -205,7 +218,7 @@ class vcr_hdf5(Dataset):
         :param idx:
         :return: str
         """
-        return self.items[idx]['img_fn']
+        return self.img_fns[idx]
 
     def _get_dets_to_use(self, item):
         """

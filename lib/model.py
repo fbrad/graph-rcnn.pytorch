@@ -362,7 +362,7 @@ class SceneGraphGeneration:
                     sgg_emb_fname = fname.replace('.jpg', '.triplets.pth')
 
                     # write top K triplets plus their probabilities
-                    with open(os.path.join(data_dir, sgg_txt_fname), 'w') as f:
+                    with open(sgg_txt_fname, 'w') as f:
                         top_triplets = self.get_triplets_as_string(top_obj,
                                                                    top_pred)
                         for triplet, score in zip(top_triplets,
@@ -371,8 +371,7 @@ class SceneGraphGeneration:
 
                     # write top K embeddings
                     top_rel_embs = rel_embs[top_order].to(cpu_device)
-                    torch.save(top_rel_embs, os.path.join(data_dir,
-                                                          sgg_emb_fname))
+                    torch.save(top_rel_embs, sgg_emb_fname)
 
                 # save detected objects and their probabilities
                 if visualize:
@@ -380,24 +379,24 @@ class SceneGraphGeneration:
                    det_img_fname = fname.replace('.jpg', '.detection.jpg')
                    det_txt_fname = fname.replace('.jpg', '.detection.txt')
                    self.visualize_detection(imgs[0],
-                                            os.path.join(data_dir, det_img_fname),
-                                            os.path.join(data_dir, det_txt_fname),
+                                            det_img_fname,
+                                            det_txt_fname,
                                             output)
 
             # {1: BoxList(), ... }
-            results_dict.update(
-                {img_id: result for img_id, result in zip(image_ids, output)}
-            )
+            # results_dict.update(
+            #     {img_id: result for img_id, result in zip(image_ids, output)}
+            # )
             # {1: T(#num_proposals, 2048)}
-            rel_embs_dict.update(
-                {img_id: rel_embs for img_id in image_ids }
-            )
-            if self.cfg.MODEL.RELATION_ON:
-                # {1: BoxPairList(), ... }
-                results_pred_dict.update(
-                    {img_id: result for img_id, result in zip(image_ids,
-                                                              output_pred)}
-                )
+            # rel_embs_dict.update(
+            #     {img_id: rel_embs for img_id in image_ids }
+            # )
+            # if self.cfg.MODEL.RELATION_ON:
+            #     # {1: BoxPairList(), ... }
+            #     results_pred_dict.update(
+            #         {img_id: result for img_id, result in zip(image_ids,
+            #                                                   output_pred)}
+            #     )
 
             # if cfg.instance > 0, break after 1 batch?
             if self.cfg.instance > 0 and i > self.cfg.instance:
@@ -424,13 +423,13 @@ class SceneGraphGeneration:
             )
         )
 
-        predictions = self._accumulate_predictions_from_multiple_gpus(
-                        results_dict)
-        relation_embeddings = self._accumulate_predictions_from_multiple_gpus(
-                    rel_embs_dict)
-        if self.cfg.MODEL.RELATION_ON:
-            predictions_pred = self._accumulate_predictions_from_multiple_gpus(
-                        results_pred_dict)
+        # predictions = self._accumulate_predictions_from_multiple_gpus(
+        #                 results_dict)
+        # relation_embeddings = self._accumulate_predictions_from_multiple_gpus(
+        #             rel_embs_dict)
+        # if self.cfg.MODEL.RELATION_ON:
+        #     predictions_pred = self._accumulate_predictions_from_multiple_gpus(
+        #                 results_pred_dict)
         if not is_main_process():
             return
 

@@ -6,7 +6,6 @@ DATASET:
   PATH: "datasets/mini_vcr"
 MODEL:
   WEIGHT_IMG: "catalog://ImageNetPretrained/MSRA/R-101"
-  WEIGHT_DET: "checkpoints/faster_rcnn_ckpt.pth"
   WEIGHT_SGG: "checkpoints/sg_baseline/checkpoint_0000001.pth"
   RELATION_ON: True
   ALGORITHM: "sg_baseline"
